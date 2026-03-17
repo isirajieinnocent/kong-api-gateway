@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+ name: grade-service-api
+ namespace: grade-demo
+ annotations:
+   konghq.com/strip-path: "false"
+   konghq.com/plugins: grade-auth,grade-rate-limit
+   kubernetes.io/ingress.class: kong
+   konghq.com/methods: "GET, POST"  
+spec:
+ ingressClassName: kong
+ rules:
+   - http:
+       paths:
+         - path: /grades
+           pathType: Prefix
+           backend:
+             service:
+               name: grade-service-api
+               port:
+                 number: 3000
+

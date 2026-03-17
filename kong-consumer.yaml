@@ -1,0 +1,11 @@
+apiVersion: configuration.konghq.com/v1
+kind: KongConsumer
+metadata:
+  name: grade-consumer            
+  namespace: grade-demo
+  annotations:
+    kubernetes.io/ingress.class: kong
+username: grade-submission 
+custom_id: grade-submission-consumer
+credentials:
+  - user1-apikey
