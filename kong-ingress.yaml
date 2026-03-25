@@ -5,7 +5,7 @@ metadata:
  namespace: grade-demo
  annotations:
    konghq.com/strip-path: "false"
-   konghq.com/plugins: grade-auth,grade-rate-limit
+   konghq.com/plugins: grade-jwt,grade-rate-limit
    kubernetes.io/ingress.class: kong
    konghq.com/methods: "GET, POST"  
 spec:

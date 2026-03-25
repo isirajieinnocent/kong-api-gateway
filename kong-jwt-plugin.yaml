@@ -1,0 +1,18 @@
+apiVersion: configuration.konghq.com/v1
+kind: KongPlugin
+metadata:
+  name: grade-jwt
+  namespace: grade-demo
+  annotations:
+    kubernetes.io/ingress.class: kong
+plugin: jwt
+config:
+  key_claim_name: iss           # JWT claim used to look up the consumer credential
+  claims_to_verify:
+    - exp                        # Reject tokens that are expired
+  header_names:
+    - Authorization              # Expects "Authorization: Bearer <token>"
+  uri_param_names: []           # Disable JWT via query param
+  cookie_names: []              # Disable JWT via cookie
+  run_on_preflight: true        # Validate JWT on OPTIONS pre-flight requests
+  maximum_expiration: 3600      # Tokens must expire within 1 hour of issuance
