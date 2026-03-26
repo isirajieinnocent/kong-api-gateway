@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+
+  # ── Kong API Gateway ────────────────────────────────────────────────────────
+  kong:
+    image: kong:3.6
+    container_name: kong
+    environment:
+      KONG_DATABASE: "off"                          # dbless mode — no Postgres needed
+      KONG_DECLARATIVE_CONFIG: /etc/kong/kong.yaml  # load config from mounted file
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: "0.0.0.0:8001"
+    ports:
+      - "8000:8000"   # Kong proxy  — send API requests here
+      - "8001:8001"   # Kong admin  — inspect routes/plugins/consumers
+    volumes:
+      - ./kong/kong.yaml:/etc/kong/kong.yaml:ro
+    depends_on:
+      grade-api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Grade API ───────────────────────────────────────────────────────────────
+  grade-api:
+    build:
+      context: ./app/grade-api
+      dockerfile: Dockerfile
+    container_name: grade-api
+    ports:
+      - "3000:3000"   # direct access (bypasses Kong) — useful for debugging only
+    environment:
+      PORT: 3000
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped

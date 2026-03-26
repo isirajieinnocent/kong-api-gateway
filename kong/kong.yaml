@@ -1,0 +1,52 @@
+_format_version: "3.0"
+_transform: true
+
+# ── Services ──────────────────────────────────────────────────────────────────
+# A Service is Kong's representation of the upstream backend
+services:
+  - name: grade-service
+    url: http://grade-api:3000   # 'grade-api' resolves via Docker Compose DNS
+    routes:
+      - name: grade-route
+        paths:
+          - /grades
+        methods:
+          - GET
+          - POST
+        strip_path: false        # preserve /grades when forwarding to the backend
+
+# ── Plugins ───────────────────────────────────────────────────────────────────
+# Applied at the service level — enforced on every request to grade-service
+plugins:
+
+  - name: jwt
+    service: grade-service
+    config:
+      key_claim_name: iss        # Kong reads the 'iss' claim to find the consumer credential
+      claims_to_verify:
+        - exp                    # reject expired tokens
+      header_names:
+        - Authorization          # expects: Authorization: Bearer <token>
+      uri_param_names: []        # disable JWT via query string
+      cookie_names: []           # disable JWT via cookie
+      run_on_preflight: true
+      maximum_expiration: 3600   # token must expire within 1 hour of issuance
+
+  - name: rate-limiting
+    service: grade-service
+    config:
+      minute: 5                  # 5 requests per minute
+      limit_by: consumer         # tracked per authenticated consumer identity
+      policy: local              # in-memory counters (use 'redis' for multi-node Kong)
+
+# ── Consumers ─────────────────────────────────────────────────────────────────
+# A Consumer is an identity that Kong authenticates and rate-limits
+consumers:
+  - username: grade-submission
+    custom_id: grade-submission-consumer
+    jwt_secrets:
+      - key: "grade-submission-issuer"    # must match 'iss' claim in the JWT
+        algorithm: HS256
+        # IMPORTANT: replace this secret before deploying to production
+        # generate a strong key with:  openssl rand -base64 64
+        secret: "grade-super-secret-jwt-signing-key-replace-in-production-min32chars"

@@ -1,229 +1,241 @@
 # Kong API Gateway — Grade Service
 
-A Kubernetes-based API Gateway setup using [Kong Ingress Controller](https://docs.konghq.com/kubernetes-ingress-controller/) to manage, secure, and rate-limit a Grade API service.
+A production-style API Gateway setup using [Kong](https://konghq.com/) to secure and rate-limit a Grade Submission REST API.
 
-## Overview
+Supports two deployment targets:
+- **Local development** — Docker Compose (no Kubernetes required)
+- **Production** — Kubernetes with Kong Ingress Controller
 
-This project deploys a Grade API service on Kubernetes and exposes it through a Kong API Gateway with:
-
-- **JWT OAuth 2.0 Authentication** — Stateless, signed JWT Bearer tokens validate consumer identity
-- **Rate Limiting** — Limits each consumer to 5 requests per minute
-- **Ingress Routing** — Routes traffic from `/grades` to the backend service on port 3000
+---
 
 ## Architecture
 
 ```
-Client Request
-     │
-     ▼
-Kong Ingress Controller (/grades)
-     │
-     ├── Plugin: jwt (grade-jwt)             ← validates Bearer JWT token
-     ├── Plugin: rate-limiting (grade-rate-limit)
-     │
-     ▼
-grade-service-api (port 3000)
+┌─────────────────────────────────────────────────────────────┐
+│                                                             │
+│   Client                                                    │
+│     │                                                       │
+│     │  Authorization: Bearer <JWT>                          │
+│     ▼                                                       │
+│   Kong API Gateway  (port 8000)                             │
+│     │                                                       │
+│     ├── Plugin: jwt           ← validates Bearer JWT token  │
+│     ├── Plugin: rate-limiting ← 5 requests/min per consumer │
+│     │                                                       │
+│     ▼                                                       │
+│   Grade API Service  (port 3000)                            │
+│     │                                                       │
+│     ├── GET  /grades   → returns all grade submissions      │
+│     └── POST /grades   → submit a new grade                 │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### JWT OAuth 2.0 Token Flow
-
-```
-1. Client signs a JWT using the shared secret (HS256)
-        │
-        ▼
-2. Client sends:  Authorization: Bearer <signed-jwt>
-        │
-        ▼
-3. Kong extracts the 'iss' claim → looks up matching KongConsumer credential
-        │
-        ▼
-4. Kong verifies signature + expiry (exp claim)
-        │
-        ▼
-5. Authenticated request forwarded to Grade API
-```
+---
 
 ## Repository Structure
 
 ```
 kong-api-gateway/
-├── namespace.yaml              # Kubernetes namespace (grade-demo)
-├── grade-api-deployment.yaml   # Grade API deployment manifest
-├── grade-api-service.yaml      # Grade API service (ClusterIP)
-├── kong-ingress.yaml           # Kong Ingress routing rules
-├── kong-consumer.yaml          # Kong consumer definition
-├── kong-jwt-plugin.yaml        # JWT OAuth 2.0 authentication plugin  ← NEW
-├── kong-jwt-secret.yaml        # JWT signing credential for consumer   ← NEW
-├── kong-auth-plugin.yaml       # Key-auth plugin (legacy, kept for reference)
-├── kong-rate-plugin.yaml       # Rate limiting plugin (5 req/min)
-└── kong-secrete.yaml           # API key secret (legacy, kept for reference)
+│
+├── app/
+│   └── grade-api/
+│       ├── src/index.js          # Express REST API
+│       ├── package.json
+│       └── Dockerfile
+│
+├── token-generator/
+│   ├── generate-token.js         # Generates signed JWT tokens for testing
+│   └── package.json
+│
+├── kong/
+│   └── kong.yaml                 # Kong declarative config (Docker Compose)
+│
+├── docker-compose.yaml           # Local dev: Kong + Grade API
+│
+├── namespace.yaml                # K8s namespace
+├── grade-api-deployment.yaml     # K8s deployment
+├── grade-api-service.yaml        # K8s service
+├── kong-ingress.yaml             # K8s ingress with plugin annotations
+├── kong-jwt-plugin.yaml          # K8s KongPlugin — jwt
+├── kong-jwt-secret.yaml          # K8s Secret — JWT credential
+├── kong-consumer.yaml            # K8s KongConsumer
+├── kong-rate-plugin.yaml         # K8s KongPlugin — rate-limiting
+├── kong-auth-plugin.yaml         # K8s KongPlugin — key-auth (legacy)
+└── kong-secrete.yaml             # K8s Secret — API key (legacy)
 ```
 
-## Prerequisites
+---
 
-- Kubernetes cluster (v1.20+)
-- Kong Ingress Controller installed
-- `kubectl` configured to point to your cluster
-- A tool to generate JWT tokens (e.g., `jwt-cli`, Python `PyJWT`, or any OAuth2 library)
+## Running Locally with Docker Compose
 
-## Installation
+### Prerequisites
 
-### 1. Create the Namespace
+- [Docker](https://docs.docker.com/get-docker/) and Docker Compose
+- [Node.js](https://nodejs.org/) v18+ (for the token generator only)
+
+### 1. Start the Stack
+
+```bash
+docker-compose up --build
+```
+
+This starts two containers:
+- `grade-api` — the Grade REST API on port 3000
+- `kong` — the API Gateway on port 8000 (proxy) and 8001 (admin)
+
+Wait until you see:
+```
+kong  | Kong started
+```
+
+### 2. Generate a JWT Token
+
+In a new terminal:
+
+```bash
+cd token-generator
+npm install
+npm run generate
+```
+
+This prints a signed JWT token and ready-to-use `curl` commands.
+
+### 3. Call the API Through Kong
+
+Use the token from step 2:
+
+```bash
+# Get all grades
+curl -X GET http://localhost:8000/grades \
+  -H "Authorization: Bearer <your-token>"
+
+# Submit a grade
+curl -X POST http://localhost:8000/grades \
+  -H "Authorization: Bearer <your-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"student": "Alice", "subject": "Mathematics", "grade": 92}'
+```
+
+### 4. Verify Kong is Working
+
+**Missing token → 401:**
+```bash
+curl http://localhost:8000/grades
+# {"message":"Unauthorized"}
+```
+
+**Inspect Kong via Admin API:**
+```bash
+curl http://localhost:8001/services    # loaded services
+curl http://localhost:8001/routes      # loaded routes
+curl http://localhost:8001/consumers   # loaded consumers
+curl http://localhost:8001/plugins     # active plugins
+```
+
+---
+
+## API Reference
+
+### `GET /grades`
+
+Returns all submitted grades.
+
+```json
+{
+  "total": 1,
+  "grades": [
+    {
+      "id": 1,
+      "student": "Alice",
+      "subject": "Mathematics",
+      "grade": 92,
+      "submitted_at": "2026-03-27T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+### `POST /grades`
+
+Submit a new grade.
+
+**Request body:**
+
+| Field     | Type   | Required | Validation      |
+|-----------|--------|----------|-----------------|
+| `student` | string | yes      | non-empty       |
+| `subject` | string | yes      | non-empty       |
+| `grade`   | number | yes      | 0–100 inclusive |
+
+```bash
+curl -X POST http://localhost:8000/grades \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"student":"Alice","subject":"Mathematics","grade":92}'
+```
+
+### `GET /health`
+
+Health check — used by Docker healthcheck, bypasses Kong auth.
+
+```json
+{ "status": "ok", "uptime": 42.3 }
+```
+
+---
+
+## Error Responses
+
+| Scenario                     | Status | Message                                          |
+|------------------------------|--------|--------------------------------------------------|
+| Missing Authorization header | `401`  | Unauthorized                                     |
+| Invalid JWT signature        | `401`  | Invalid signature                                |
+| Expired token                | `401`  | Token has expired                                |
+| Unknown issuer               | `401`  | No credentials found for given 'iss'             |
+| Rate limit exceeded          | `429`  | API rate limit exceeded                          |
+| Missing required fields      | `400`  | Missing required fields: student, subject, grade |
+| Grade out of range           | `400`  | grade must be a number between 0 and 100         |
+| Wrong HTTP method            | `405`  | Method not allowed                               |
+
+---
+
+## JWT Configuration
+
+| Setting              | Value                     | Purpose                                 |
+|----------------------|---------------------------|-----------------------------------------|
+| `key_claim_name`     | `iss`                     | Claim used to look up consumer          |
+| `claims_to_verify`   | `exp`                     | Rejects expired tokens                  |
+| `header_names`       | `Authorization`           | `Authorization: Bearer <token>`         |
+| `maximum_expiration` | `3600`                    | Token must expire within 1 hour         |
+| `algorithm`          | `HS256`                   | HMAC-SHA256 symmetric signing           |
+| `iss` value          | `grade-submission-issuer` | Must match `iss` claim in token         |
+
+---
+
+## Deploying to Kubernetes
 
 ```bash
 kubectl apply -f namespace.yaml
-```
-
-### 2. Deploy the Grade API
-
-```bash
 kubectl apply -f grade-api-deployment.yaml
 kubectl apply -f grade-api-service.yaml
-```
-
-### 3. Apply Kong Plugins
-
-```bash
 kubectl apply -f kong-jwt-plugin.yaml
 kubectl apply -f kong-rate-plugin.yaml
-```
-
-### 4. Create Consumer & JWT Credential
-
-> **Important:** Before applying, replace the `secret` value in `kong-jwt-secret.yaml`
-> with a strong, randomly-generated key:
->
-> ```bash
-> openssl rand -base64 64
-> ```
-
-```bash
-kubectl apply -f kong-jwt-secret.yaml
+kubectl apply -f kong-jwt-secret.yaml   # edit 'secret' first: openssl rand -base64 64
 kubectl apply -f kong-consumer.yaml
-```
-
-### 5. Apply the Ingress
-
-```bash
 kubectl apply -f kong-ingress.yaml
 ```
 
-## Usage
+---
 
-### Step 1 — Generate a JWT Token
+## Security Notes
 
-Use the **same secret and issuer** configured in `kong-jwt-secret.yaml`.
+- Replace the JWT `secret` before any real deployment: `openssl rand -base64 64`
+- For production, switch to `RS256` — Kong only needs the public key, never the signing key
+- Switch rate-limiting `policy` from `local` to `redis` for multi-replica Kong deployments
+- Enable HTTPS on the Kong proxy to prevent token interception in transit
 
-**Using Python (PyJWT):**
-
-```python
-import jwt
-import time
-
-payload = {
-    "iss": "grade-submission-issuer",   # must match the 'key' in kong-jwt-secret.yaml
-    "exp": int(time.time()) + 3600,     # expires in 1 hour
-    "sub": "grade-submission"
-}
-
-token = jwt.encode(payload, "grade-super-secret-jwt-signing-key-replace-in-production-min32chars", algorithm="HS256")
-print(token)
-```
-
-**Using jwt-cli:**
-
-```bash
-jwt encode \
-  --alg HS256 \
-  --secret "grade-super-secret-jwt-signing-key-replace-in-production-min32chars" \
-  --claim iss=grade-submission-issuer \
-  --exp=$(date -d "+1 hour" +%s)
-```
-
-### Step 2 — Call the API
-
-```bash
-TOKEN="<paste-your-jwt-token-here>"
-
-# GET request
-curl -X GET http://<KONG_PROXY_IP>/grades \
-  -H "Authorization: Bearer $TOKEN"
-
-# POST request
-curl -X POST http://<KONG_PROXY_IP>/grades \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"student": "Alice", "grade": 95}'
-```
-
-### Error Responses
-
-| Scenario                        | HTTP Status | Message                          |
-|---------------------------------|-------------|----------------------------------|
-| Missing `Authorization` header  | `401`       | Unauthorized                     |
-| Malformed or invalid JWT        | `401`       | Invalid signature                |
-| Expired JWT (`exp` in the past) | `401`       | Token has expired                |
-| Unknown issuer (`iss` mismatch) | `401`       | No credentials found for given 'iss' |
-| Rate limit exceeded             | `429`       | API rate limit exceeded          |
-
-## Configuration
-
-### JWT Plugin (`kong-jwt-plugin.yaml`)
-
-| Setting              | Value           | Description                                     |
-|----------------------|-----------------|-------------------------------------------------|
-| `key_claim_name`     | `iss`           | JWT claim used to identify the consumer         |
-| `claims_to_verify`   | `exp`           | Reject tokens that are expired                  |
-| `header_names`       | `Authorization` | Read JWT from `Authorization: Bearer` header    |
-| `maximum_expiration` | `3600`          | Token must expire within 1 hour of issuance     |
-
-### JWT Credential (`kong-jwt-secret.yaml`)
-
-| Setting     | Value                        | Description                                     |
-|-------------|------------------------------|-------------------------------------------------|
-| `key`       | `grade-submission-issuer`    | Must match the `iss` claim in the JWT           |
-| `algorithm` | `HS256`                      | HMAC-SHA256 symmetric signing algorithm         |
-| `secret`    | *(set your own)*             | Shared secret for signing and verifying tokens  |
-
-### Rate Limiting Plugin (`kong-rate-plugin.yaml`)
-
-| Setting              | Value      | Description                          |
-|----------------------|------------|--------------------------------------|
-| Requests per minute  | `5`        | Max requests allowed per minute      |
-| Limit by             | `consumer` | Tracked per authenticated consumer   |
-| Policy               | `local`    | In-memory rate limit counter         |
-
-## Security Recommendations
-
-- **Rotate the JWT secret** regularly and store it in a secrets manager (e.g., HashiCorp Vault, AWS Secrets Manager)
-- **Use short expiry times** — tokens should expire in minutes or hours, not days
-- **Switch to RS256** for production: use an RSA private key to sign tokens and configure Kong with the public key only — this prevents Kong itself from issuing tokens
-- **Enable HTTPS** on your Kong proxy to prevent token interception in transit
-
-## RS256 (Asymmetric) Setup (Production Recommended)
-
-Generate an RSA key pair:
-
-```bash
-# Private key (kept by the token issuer / auth server)
-openssl genrsa -out jwt-private.pem 2048
-
-# Public key (given to Kong for verification only)
-openssl rsa -in jwt-private.pem -pubout -out jwt-public.pem
-```
-
-Update `kong-jwt-secret.yaml`:
-
-```yaml
-stringData:
-  kongCredType: jwt
-  key: "grade-submission-issuer"
-  algorithm: "RS256"
-  rsa_public_key: |
-    -----BEGIN PUBLIC KEY-----
-    <paste contents of jwt-public.pem here>
-    -----END PUBLIC KEY-----
-```
+---
 
 ## License
 

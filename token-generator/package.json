@@ -1,0 +1,12 @@
+{
+  "name": "token-generator",
+  "version": "1.0.0",
+  "description": "Generates signed JWT tokens for the Kong grade-api gateway",
+  "main": "generate-token.js",
+  "scripts": {
+    "generate": "node generate-token.js"
+  },
+  "dependencies": {
+    "jsonwebtoken": "^9.0.2"
+  }
+}
