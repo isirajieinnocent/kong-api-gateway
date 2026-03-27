@@ -1,12 +1,12 @@
 apiVersion: configuration.konghq.com/v1
 kind: KongPlugin
 metadata:
- name: grade-rate-limit
- namespace: grade-demo
- annotations:
-  kubernetes.io/ingress.class: kong
-config:
- minute: 5
- limit_by: consumer
- policy: local
+  name: grade-rate-limit
+  namespace: grade-demo
+  annotations:
+    kubernetes.io/ingress.class: kong
 plugin: rate-limiting
+config:
+  minute: 5
+  limit_by: consumer
+  policy: local

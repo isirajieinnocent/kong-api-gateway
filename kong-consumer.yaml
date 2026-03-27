@@ -1,12 +1,11 @@
 apiVersion: configuration.konghq.com/v1
 kind: KongConsumer
 metadata:
-  name: grade-consumer            
+  name: grade-consumer
   namespace: grade-demo
   annotations:
     kubernetes.io/ingress.class: kong
-username: grade-submission 
+username: grade-submission
 custom_id: grade-submission-consumer
 credentials:
-  - user1-apikey          # key-auth credential (kept for backward compatibility)
-  - grade-jwt-credential  # JWT OAuth 2.0 credential
+  - grade-jwt-credential  # JWT credential — used by the active grade-jwt plugin

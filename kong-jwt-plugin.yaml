@@ -7,12 +7,12 @@ metadata:
     kubernetes.io/ingress.class: kong
 plugin: jwt
 config:
-  key_claim_name: iss           # JWT claim used to look up the consumer credential
+  key_claim_name: iss
   claims_to_verify:
-    - exp                        # Reject tokens that are expired
+    - exp
   header_names:
-    - Authorization              # Expects "Authorization: Bearer <token>"
-  uri_param_names: []           # Disable JWT via query param
-  cookie_names: []              # Disable JWT via cookie
-  run_on_preflight: true        # Validate JWT on OPTIONS pre-flight requests
-  maximum_expiration: 3600      # Tokens must expire within 1 hour of issuance
+    - Authorization
+  uri_param_names: []
+  cookie_names: []
+  run_on_preflight: true
+  maximum_expiration: 3600
